@@ -31,6 +31,8 @@ Singleton {
     property list<real> memoryUsageHistory: []
     property list<real> swapUsageHistory: []
 
+    property var lastNetworkCheckTime: 0
+
     function kbToGbString(kb) {
         return (kb / (1024 * 1024)).toFixed(1) + " GB";
     }
@@ -68,6 +70,25 @@ Singleton {
             fileMeminfo.reload()
             fileStat.reload()
 
+            // Parse Network usage
+            const tx = Number(fileTxStat.text().trim());
+            const rx = Number(fileRxStat.text().trim());
+            const now = Date.now();
+
+            if (previusNetworkStats && lastNetworkCheckTime > 0) {
+                const txDiff = tx - previusNetworkStats.tx;
+                const rxDiff = rx - previusNetworkStats.rx;
+
+                const timeDiffSec = (now - lastNetworkCheckTime) / 1000;
+
+                if (timeDiffSec > 0) {
+                    networkDownloadSpeed = rxDiff / timeDiffSec;
+                    networkUploadSpeed = txDiff / timeDiffSec;
+                }
+            }
+            previusNetworkStats = { tx: tx, rx: rx };
+            lastNetworkCheckTime = now;
+
             // Parse memory and swap usage
             const textMeminfo = fileMeminfo.text()
             memoryTotal = Number(textMeminfo.match(/MemTotal: *(\d+)/)?.[1] ?? 1)
@@ -99,6 +120,8 @@ Singleton {
 
 	FileView { id: fileMeminfo; path: "/proc/meminfo" }
     FileView { id: fileStat; path: "/proc/stat" }
+    FileView { id: fileTxStat; path: "/sys/class/net/" + Config.options.bar.networkSpeed.interf.trim() + "/statistics/tx_bytes"}
+    FileView { id: fileRxStat; path: "/sys/class/net/" + Config.options.bar.networkSpeed.interf.trim() + "/statistics/rx_bytes"}
 
     Process {
         id: findCpuMaxFreqProc
@@ -108,6 +131,21 @@ Singleton {
             id: outputCollector
             onStreamFinished: {
                 root.maxAvailableCpuString = (parseFloat(outputCollector.text) / 1000).toFixed(0) + " GHz"
+            }
+        }
+    }
+
+    Process { // use first ustable interface if interface is not set in config
+        id: interfaceProc
+        command: ["bash", "-c", "ls /sys/class/net/ | grep -vE '^(lo|br|docker|vir)' | head -n 1"] //exclude some bridge and virtual network interfaces
+        running: true
+
+        stdout: StdioCollector {
+            onStreamFinished: {
+                if(Config.options.bar.networkSpeed.interf== ""){
+                    Config.options.bar.networkSpeed.interf = this.text
+                    print(this.text)
+                }
             }
         }
     }
