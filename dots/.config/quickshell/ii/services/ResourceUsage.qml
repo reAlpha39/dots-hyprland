@@ -35,6 +35,9 @@ Singleton {
     property list<real> swapUsageHistory: []
 
     property var lastNetworkCheckTime: 0
+    property double networkDownloadSpeed: 0
+    property double networkUploadSpeed: 0
+    property var previusNetworkStats
 
     function kbToGbString(kb) {
         return (kb / (1024 * 1024)).toFixed(1) + " GB";
@@ -73,6 +76,8 @@ Singleton {
             // Reload files
             fileMeminfo.reload();
             fileStat.reload();
+            fileTxStat.reload();
+            fileRxStat.reload();
 
             // Parse Network usage
             const tx = Number(fileTxStat.text().trim());
@@ -125,7 +130,6 @@ Singleton {
             const cpuCoreFrequencies = cpuInfo.match(/cpu MHz\s+:\s+(\d+\.\d+)\n/g).map(x => Number(x.match(/\d+\.\d+/)));
             const cpuCoreFreqencyAvg = cpuCoreFrequencies.reduce((a, b) => a + b, 0) / cpuCoreFrequencies.length;
             cpuFreqency = cpuCoreFreqencyAvg / 1000;
-            
 
             //read cpu temp
             tempProc.running = true
@@ -147,8 +151,20 @@ Singleton {
         id: fileStat
         path: "/proc/stat"
     }
-    FileView { id: fileTxStat; path: "/sys/class/net/" + Config.options.bar.networkSpeed.interf.trim() + "/statistics/tx_bytes"}
-    FileView { id: fileRxStat; path: "/sys/class/net/" + Config.options.bar.networkSpeed.interf.trim() + "/statistics/rx_bytes"}
+    FileView {
+        id: fileTxStat
+        path: "/sys/class/net/" + Config.options.bar.networkSpeed.interf.trim() + "/statistics/tx_bytes"
+    }
+    FileView {
+        id: fileRxStat
+        path: "/sys/class/net/" + Config.options.bar.networkSpeed.interf.trim() + "/statistics/rx_bytes"
+    }
+
+    Process { // only run this once
+        id: fileCreationtempProc
+        running: true
+        command: ["bash", "-c", `${Directories.scriptPath}/cpu/coretemp.sh`.replace(/file:\/\//, "")]
+    }
 
 
     Process {
@@ -161,7 +177,17 @@ Singleton {
                 root.maxAvailableCpuString = (parseFloat(outputCollector.text) / 1000).toFixed(0) + " GHz"
             }
         }
+    }
 
+    Process { // only run this once
+        id: tempProc
+        running: true
+        command: ["bash", "-c", "cat /tmp/quickshell/coretemp"]
+        stdout: StdioCollector {
+            onStreamFinished: {
+                cpuTemperature = Number(this.text) / 1000;
+            }
+        }
     }
 
     Process { // use first ustable interface if interface is not set in config
